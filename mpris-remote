@@ -90,51 +90,16 @@ import os, sys, re, time, urllib2, dbus
 
 org_mpris_re = re.compile('^org\.mpris\.([^.]+)$')
 
-def possible_names():
+def possible_names(bus):
     return [ name for name in bus.list_names() if org_mpris_re.match(name) ]
 
 # returns first matching player
-def get_player():
-    names = possible_names()
+def get_player(bus):
+    names = possible_names(bus)
     if not names:
         print >>sys.stderr, "No MPRIS-compliant player found running."
         raise SystemExit(1)
     return org_mpris_re.match(names[0]).group(1)
-
-bus = dbus.SessionBus()
-
-player_name = os.environ.get('MPRIS_REMOTE_PLAYER', '*')
-
-if player_name == '*':
-    player_name = get_player()
-
-try:
-    root_obj      = bus.get_object('org.mpris.%s' % player_name, '/')
-    player_obj    = bus.get_object('org.mpris.%s' % player_name, '/Player')
-    tracklist_obj = bus.get_object('org.mpris.%s' % player_name, '/TrackList')
-except dbus.exceptions.DBusException, e:
-    if e.get_dbus_name() != 'org.freedesktop.DBus.Error.ServiceUnknown':
-        raise
-
-    print >>sys.stderr, 'Player "%s" was not found to be running.' % player_name
-    names = possible_names()
-    if names:
-        print >>sys.stderr, "But the following players were found to be running:"
-        for n in names:
-            print >>sys.stderr, "    %s" % n.replace("org.mpris.", "")
-    print >>sys.stderr, 'If you meant to use one of those players, ' \
-                        'set $MPRIS_REMOTE_PLAYER accordingly.'
-    raise SystemExit(1)
-
-root      = dbus.Interface(root_obj,      dbus_interface='org.freedesktop.MediaPlayer')
-player    = dbus.Interface(player_obj,    dbus_interface='org.freedesktop.MediaPlayer')
-tracklist = dbus.Interface(tracklist_obj, dbus_interface='org.freedesktop.MediaPlayer')
-
-try:
-    tracklist_len = tracklist.GetLength()
-except dbus.exceptions.DBusException:
-    # GetLength() not supported by player (BMPx for example)
-    tracklist_len = -1
 
 class YouDidItWrong(Exception): pass
 
@@ -153,6 +118,7 @@ class is_zero_to_100(object):
             raise ValueError
 
 class is_track_num(object):
+    tracklist_len = 0
     if tracklist_len > 0:
         type_desc = 'an integer within [0..%d] (current playlist size is %d)' % (tracklist_len-1, tracklist_len)
     elif tracklist_len == 0:
@@ -243,7 +209,40 @@ def print_metadata(dct):
 
 class Commander(object):
 
-    # root
+    def __init__(self, bus, player_name):
+        
+        try:
+            root_obj      = bus.get_object('org.mpris.%s' % player_name, '/')
+            player_obj    = bus.get_object('org.mpris.%s' % player_name, '/Player')
+            tracklist_obj = bus.get_object('org.mpris.%s' % player_name, '/TrackList')
+        except dbus.exceptions.DBusException, e:
+            if e.get_dbus_name() != 'org.freedesktop.DBus.Error.ServiceUnknown':
+                raise
+        
+            print >>sys.stderr, 'Player "%s" was not found to be running.' % player_name
+            names = possible_names()
+            if names:
+                print >>sys.stderr, "But the following players were found to be running:"
+                for n in names:
+                    print >>sys.stderr, "    %s" % n.replace("org.mpris.", "")
+            print >>sys.stderr, 'If you meant to use one of those players, ' \
+                                'set $MPRIS_REMOTE_PLAYER accordingly.'
+            raise SystemExit(1)
+        
+        root      = dbus.Interface(root_obj,      dbus_interface='org.freedesktop.MediaPlayer')
+        player    = dbus.Interface(player_obj,    dbus_interface='org.freedesktop.MediaPlayer')
+        tracklist = dbus.Interface(tracklist_obj, dbus_interface='org.freedesktop.MediaPlayer')
+        
+        try:
+            tracklist_len = tracklist.GetLength()
+        except dbus.exceptions.DBusException:
+            # GetLength() not supported by player (BMPx for example)
+            tracklist_len = -1
+            
+        self.player_name = player_name
+        self.root = root
+        self.player = player
+        self.tracklist = tracklist
 
     @explain_numargs(0)
     def identity(self):
@@ -257,56 +256,56 @@ class Commander(object):
 
     @explain_numargs(0)
     def prev(self):
-        player.Prev()
+        self.player.Prev()
 
     @explain_numargs(0)
     def previous(self):
-        player.Prev()
+        self.player.Prev()
 
     @explain_numargs(0)
     def next(self):
-        player.Next()
+        self.player.Next()
 
     @explain_numargs(0)
     def stop(self):
-        player.Stop()
+        self.player.Stop()
 
     @explain_numargs(0)
     def play(self):
-        player.Play()
+        self.player.Play()
 
     @explain_numargs(0)
     def pause(self):
-        player.Pause()
+        self.player.Pause()
 
     @explain_numargs(0, 1)
     @explain_argtype(0, is_zero_to_100, optional=True)
     def volume(self, vol=None):
         if vol is not None:
-            player.VolumeSet(int(vol))
+            self.player.VolumeSet(int(vol))
         else:
-            print player.VolumeGet()
+            print self.player.VolumeGet()
 
     @explain_numargs(0)
     def position(self):
-        print format_time(player.PositionGet())
+        print format_time(self.player.PositionGet())
 
     @explain_numargs(1)
     @explain_argtype(0, int)
     def seek(self, pos):
-        player.PositionSet(int(pos))
+        self.player.PositionSet(int(pos))
 
     @explain_numargs(1)
     @explain_argtype(0, is_boolean)
     def repeat(self, on):
         if on == 'true':
-            player.Repeat(True)
+            self.player.Repeat(True)
         elif on == 'false':
-            player.Repeat(False)
+            self.player.Repeat(False)
 
     @explain_numargs(0)
     def playstatus(self):
-        status = player.GetStatus()
+        status = self.player.GetStatus()
         print "playing: %s" % playstatus_from_int(status[0])
         print "random/shuffle: %s" % ("true" if status[1] else "false")
         print "repeat track: %s" % ("true" if status[2] else "false")
@@ -322,13 +321,13 @@ class Commander(object):
         elif track is not None:
             print_metadata(tracklist.GetMetadata(int(track)))
         else:
-            print_metadata(player.GetMetadata())
+            print_metadata(self.player.GetMetadata())
 
     # tracklist
 
     @explain_numargs(0)
     def clear(self):
-        player.Stop()
+        self.player.Stop()
         for i in range(tracklist.GetLength()):
             tracklist.DelTrack(0)
 
@@ -372,7 +371,7 @@ class Commander(object):
             tracklist.SetLoop(False)
         else:
             try:
-                status = player.GetStatus()
+                status = self.player.GetStatus()
             except dbus.exceptions.DBusException:
                 print >>sys.stderr, "Player does not support checking loop status."
             else:
@@ -387,17 +386,130 @@ class Commander(object):
             tracklist.SetRandom(False)
         else:
             try:
-                status = player.GetStatus()
+                status = self.player.GetStatus()
             except dbus.exceptions.DBusException:
                 print >>sys.stderr, "Player does not support checking random status."
             else:
                 print "true" if status[2] else "false"
 
+    def print_nicey_nice(self):
+        # to be compatible with a wide array of implementations (some very
+        # incorrect/incomplete), we have to do a LOT of extra work here.
+    
+        try:
+            status = self.player.GetStatus()
+        except dbus.exceptions.DBusException:
+            status = None
+    
+        try:
+            status[0] # dragon player returns a single int, which is wrong
+        except TypeError:
+            status = None
+    
+        try:
+            curtrack = tracklist.GetCurrentTrack()
+        except dbus.exceptions.DBusException:
+            curtrack = None
+    
+        try:
+            pos = self.player.PositionGet()
+        except dbus.exceptions.DBusException:
+            pos = None
+    
+        try:
+            meta = dict(self.player.GetMetadata())
+        except dbus.exceptions.DBusException:
+            meta = {}
+    
+        if 'mtime' in meta:
+            mtime = int(meta['mtime'])
+            if abs(mtime - time.time()) < 60*60*24*365*5:
+                # if the mtime is within 5 years of right now, which would mean the
+                # song is thousands of hours long, then i'm gonna assume that the
+                # player is incorrectly using this field for the file's mtime, not
+                # the song length. (bmpx does this as of january 2008)
+                del meta['mtime']
+    
+                # and also, if we know it's bmp, then we can swipe the time field
+                if self.player_name == 'bmp':
+                    meta['mtime'] = meta['time'] * 1000
+    
+        have_status = (status is not None)
+        have_curtrack = (curtrack is not None)
+        have_listlen = (tracklist_len >= 0)
+        have_player_info = (have_status or have_curtrack or have_listlen)
+    
+        have_pos = (pos is not None)
+        have_mtime = ('mtime' in meta)
+        have_tracknum = ('tracknumber' in meta)
+        have_song_info = (have_pos or have_mtime or have_tracknum)
+    
+        ##
+    
+        if have_player_info:
+            sys.stdout.write('[')
+    
+        if have_status:
+            sys.stdout.write("%s" % playstatus_from_int(status[0]))
+            if have_curtrack:
+                sys.stdout.write(' ')
+    
+        if have_curtrack:
+            sys.stdout.write(str(curtrack+1))
+            if have_listlen:
+                sys.stdout.write('/')
+    
+        if have_listlen:
+            sys.stdout.write(str(tracklist_len))
+    
+        if have_player_info:
+            sys.stdout.write(']')
+    
+        ##
+    
+        if have_player_info and have_song_info:
+            sys.stdout.write(' ')
+    
+        ##
+    
+        if have_pos or have_mtime:
+            sys.stdout.write('@ ')
+            if have_pos:
+                sys.stdout.write(format_time(pos).split('.')[0])
+            elif have_mtime:
+                sys.stdout.write('?')
+    
+            if have_mtime:
+                sys.stdout.write('/')
+                sys.stdout.write(format_time(meta['mtime']).split('.')[0])
+    
+        if have_tracknum:
+            sys.stdout.write(' - #%s' % meta['tracknumber'])
+    
+        if have_player_info or have_song_info:
+            sys.stdout.write('\n')
+    
+        ##
+    
+        if 'artist' in meta:
+            print '  artist:', meta['artist']
+        if 'title' in meta:
+            print '  title:', meta['title']
+        if 'album' in meta:
+            print '  album:', meta['album']
+    
+        if have_status:
+            print '[repeat %s] [random %s] [loop %s]' % (
+                "on" if status[2] else "off",
+                "on" if status[1] else "off",
+                "on" if status[3] else "off",
+            )
 # player-specific Commanders, only one for now
 
 class Commander_corn(Commander):
-    def __init__(self):
-        super(Commander_corn, self).__init__()
+    def __init__(self, bus, player_name):
+        super(Commander_corn, self).__init__(bus, player_name)
+        assert player_name == 'corn'
         corn_obj = bus.get_object('org.mpris.corn', '/Corn')
         self.corn = dbus.Interface(corn_obj, dbus_interface='org.corn.CornPlayer')
 
@@ -424,144 +536,41 @@ def format_time(rawms):
     ms = rawms % 1000
     return "%d:%02d.%03d" % (min, sec, ms)
 
-
 def playstatus_from_int(n):
     return ['playing', 'paused', 'stopped'][n]
 
+def main(method_name, args, legacy_only=False, player_name='*',
+         **_bullshit # why values isn't a dict I don't know. 
+         ):
 
-def print_nicey_nice():
-    # to be compatible with a wide array of implementations (some very
-    # incorrect/incomplete), we have to do a LOT of extra work here.
+    if 'Commander_'+player_name in globals():
+        cmdr_factory = globals()['Commander_'+player_name]
+    else:
+        cmdr_factory = Commander
 
-    try:
-        status = player.GetStatus()
-    except dbus.exceptions.DBusException:
-        status = None
+    bus = dbus.SessionBus()
 
-    try:
-        status[0] # dragon player returns a single int, which is wrong
-    except TypeError:
-        status = None
-
-    try:
-        curtrack = tracklist.GetCurrentTrack()
-    except dbus.exceptions.DBusException:
-        curtrack = None
+    if player_name == '*':
+        player_name = os.environ.get('MPRIS_REMOTE_PLAYER', '*')
+    if player_name == '*':
+        player_name = get_player(bus)
 
     try:
-        pos = player.PositionGet()
-    except dbus.exceptions.DBusException:
-        pos = None
-
-    try:
-        meta = dict(player.GetMetadata())
-    except dbus.exceptions.DBusException:
-        meta = {}
-
-    if 'mtime' in meta:
-        mtime = int(meta['mtime'])
-        if abs(mtime - time.time()) < 60*60*24*365*5:
-            # if the mtime is within 5 years of right now, which would mean the
-            # song is thousands of hours long, then i'm gonna assume that the
-            # player is incorrectly using this field for the file's mtime, not
-            # the song length. (bmpx does this as of january 2008)
-            del meta['mtime']
-
-            # and also, if we know it's bmp, then we can swipe the time field
-            if player_name == 'bmp':
-                meta['mtime'] = meta['time'] * 1000
-
-    have_status = (status is not None)
-    have_curtrack = (curtrack is not None)
-    have_listlen = (tracklist_len >= 0)
-    have_player_info = (have_status or have_curtrack or have_listlen)
-
-    have_pos = (pos is not None)
-    have_mtime = ('mtime' in meta)
-    have_tracknum = ('tracknumber' in meta)
-    have_song_info = (have_pos or have_mtime or have_tracknum)
-
-    ##
-
-    if have_player_info:
-        sys.stdout.write('[')
-
-    if have_status:
-        sys.stdout.write("%s" % playstatus_from_int(status[0]))
-        if have_curtrack:
-            sys.stdout.write(' ')
-
-    if have_curtrack:
-        sys.stdout.write(str(curtrack+1))
-        if have_listlen:
-            sys.stdout.write('/')
-
-    if have_listlen:
-        sys.stdout.write(str(tracklist_len))
-
-    if have_player_info:
-        sys.stdout.write(']')
-
-    ##
-
-    if have_player_info and have_song_info:
-        sys.stdout.write(' ')
-
-    ##
-
-    if have_pos or have_mtime:
-        sys.stdout.write('@ ')
-        if have_pos:
-            sys.stdout.write(format_time(pos).split('.')[0])
-        elif have_mtime:
-            sys.stdout.write('?')
-
-        if have_mtime:
-            sys.stdout.write('/')
-            sys.stdout.write(format_time(meta['mtime']).split('.')[0])
-
-    if have_tracknum:
-        sys.stdout.write(' - #%s' % meta['tracknumber'])
-
-    if have_player_info or have_song_info:
-        sys.stdout.write('\n')
-
-    ##
-
-    if 'artist' in meta:
-        print '  artist:', meta['artist']
-    if 'title' in meta:
-        print '  title:', meta['title']
-    if 'album' in meta:
-        print '  album:', meta['album']
-
-    if have_status:
-        print '[repeat %s] [random %s] [loop %s]' % (
-            "on" if status[2] else "off",
-            "on" if status[1] else "off",
-            "on" if status[3] else "off",
-        )
+        cmdr = cmdr_factory(bus, player_name)
+        getattr(cmdr, method_name)(*args)
+    except YouDidItWrong, e:
+        print >>sys.stderr, e
+        raise SystemExit(1)
+    except KeyboardInterrupt:
+        raise SystemExit(2)
 
 if __name__ == '__main__':
-    if len(sys.argv) == 1:
-        print_nicey_nice()
-    elif sys.argv[1] in ('-h', '--help', '-?'):
-        print usage
-    else:
-        method_name = sys.argv[1]
-        args = sys.argv[2:]
-
-        if 'Commander_'+player_name in globals():
-            cmdr = globals()['Commander_'+player_name]
-        else:
-            cmdr = Commander
-
-        try:
-            getattr(cmdr(), method_name)(*args)
-        except YouDidItWrong, e:
-            print >>sys.stderr, e
-            raise SystemExit(1)
-        except KeyboardInterrupt:
-            raise SystemExit(2)
-
-
+    import optparse
+    parser = optparse.OptionParser()
+    parser.add_option('--legacy', dest='legacy_only',
+            action="store_true", default=False)
+    parser.add_option('--player', dest='player_name',
+            default='*'
+            )
+    values, args = parser.parse_args()
+    main(args[0], args[1:], **vars(values))
