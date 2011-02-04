@@ -89,17 +89,29 @@ NOTES:
 import os, sys, re, time, urllib2, dbus
 
 org_mpris_re = re.compile('^org\.mpris\.([^.]+)$')
+org_mpris2_re = re.compile('^org\.mpris\.MediaPlayer2\.([^.]+)$')
 
-def possible_names(bus):
-    return [ name for name in bus.list_names() if org_mpris_re.match(name) ]
+#returns MPRIS2 players first.
+def possible_names(bus, legacy_only=False):
+    names = bus.list_names()
+    ret = [ name for name in names if org_mpris_re.match(name) ]
+    if not legacy_only:
+        ret = [ name for name in names if org_mpris2_re.match(name)] + ret
+    return ret
 
 # returns first matching player
-def get_player(bus):
+def get_player(bus, legacy_only=False):
     names = possible_names(bus)
     if not names:
         print >>sys.stderr, "No MPRIS-compliant player found running."
         raise SystemExit(1)
-    return org_mpris_re.match(names[0]).group(1)
+
+    match = org_mpris2_re.match(names[0])
+    if match:
+        return match.group(1), 2
+    else:
+        match = org_mpris_re.match(names[0])
+        return match.group(1), 1
 
 class YouDidItWrong(Exception): pass
 
@@ -208,41 +220,6 @@ def print_metadata(dct):
         print "%s: %s" % (k, v)
 
 class Commander(object):
-
-    def __init__(self, bus, player_name):
-        
-        try:
-            root_obj      = bus.get_object('org.mpris.%s' % player_name, '/')
-            player_obj    = bus.get_object('org.mpris.%s' % player_name, '/Player')
-            tracklist_obj = bus.get_object('org.mpris.%s' % player_name, '/TrackList')
-        except dbus.exceptions.DBusException, e:
-            if e.get_dbus_name() != 'org.freedesktop.DBus.Error.ServiceUnknown':
-                raise
-        
-            print >>sys.stderr, 'Player "%s" was not found to be running.' % player_name
-            names = possible_names()
-            if names:
-                print >>sys.stderr, "But the following players were found to be running:"
-                for n in names:
-                    print >>sys.stderr, "    %s" % n.replace("org.mpris.", "")
-            print >>sys.stderr, 'If you meant to use one of those players, ' \
-                                'set $MPRIS_REMOTE_PLAYER accordingly.'
-            raise SystemExit(1)
-        
-        root      = dbus.Interface(root_obj,      dbus_interface='org.freedesktop.MediaPlayer')
-        player    = dbus.Interface(player_obj,    dbus_interface='org.freedesktop.MediaPlayer')
-        tracklist = dbus.Interface(tracklist_obj, dbus_interface='org.freedesktop.MediaPlayer')
-        
-        try:
-            tracklist_len = tracklist.GetLength()
-        except dbus.exceptions.DBusException:
-            # GetLength() not supported by player (BMPx for example)
-            tracklist_len = -1
-            
-        self.player_name = player_name
-        self.root = root
-        self.player = player
-        self.tracklist = tracklist
 
     @explain_numargs(0)
     def identity(self):
@@ -504,9 +481,49 @@ class Commander(object):
                 "on" if status[1] else "off",
                 "on" if status[3] else "off",
             )
+
+
+class Commander1(Commander):
+
+    def __init__(self, bus, player_name):
+
+        try:
+            root_obj      = bus.get_object('org.mpris.%s' % player_name, '/')
+            player_obj    = bus.get_object('org.mpris.%s' % player_name, '/Player')
+            tracklist_obj = bus.get_object('org.mpris.%s' % player_name, '/TrackList')
+        except dbus.exceptions.DBusException, e:
+            if e.get_dbus_name() != 'org.freedesktop.DBus.Error.ServiceUnknown':
+                raise
+
+            print >>sys.stderr, 'Player "%s" was not found to be running.' % player_name
+            names = possible_names(bus)
+            if names:
+                print >>sys.stderr, "But the following players were found to be running:"
+                for n in names:
+                    print >>sys.stderr, "    %s" % n.replace("org.mpris.", "")
+            print >>sys.stderr, 'If you meant to use one of those players, ' \
+                                'set $MPRIS_REMOTE_PLAYER accordingly.'
+            raise SystemExit(1)
+
+        root      = dbus.Interface(root_obj,      dbus_interface='org.freedesktop.MediaPlayer')
+        player    = dbus.Interface(player_obj,    dbus_interface='org.freedesktop.MediaPlayer')
+        tracklist = dbus.Interface(tracklist_obj, dbus_interface='org.freedesktop.MediaPlayer')
+
+        try:
+            tracklist_len = tracklist.GetLength()
+        except dbus.exceptions.DBusException:
+            # GetLength() not supported by player (BMPx for example)
+            tracklist_len = -1
+
+        self.player_name = player_name
+        self.root = root
+        self.player = player
+        self.tracklist = tracklist
+
+
 # player-specific Commanders, only one for now
 
-class Commander_corn(Commander):
+class Commander_corn(Commander1):
     def __init__(self, bus, player_name):
         super(Commander_corn, self).__init__(bus, player_name)
         assert player_name == 'corn'
@@ -530,6 +547,46 @@ class Commander_corn(Commander):
     def move(self, from_, to):
         self.corn.Move(int(from_), int(to))
 
+class TrackListNotSupported(object):
+    def __getattr__(self, name):
+        def raiser(*args, **kwargs):
+            YouDidItWrong("Track list not supported. Sorry.")
+        return raiser
+
+class Commander2(Commander):
+
+    def __init__(self, bus, player_name):
+
+        try:
+            player_obj    = bus.get_object('org.mpris.MediaPlayer2.%s' % player_name, '/org/mpris/MediaPlayer2')
+            #tracklist_obj = bus.get_object('org.mpris.MediaPlayer2.%s' % player_name, '/TrackList')
+        except dbus.exceptions.DBusException, e:
+            if e.get_dbus_name() != 'org.freedesktop.DBus.Error.ServiceUnknown':
+                raise
+
+            print >>sys.stderr, 'Player "%s" was not found to be running.' % player_name
+            names = possible_names(bus)
+            if names:
+                print >>sys.stderr, "But the following players were found to be running:"
+                for n in names:
+                    print >>sys.stderr, "    %s" % n.replace("org.mpris.", "")
+            print >>sys.stderr, 'If you meant to use one of those players, ' \
+                                'set $MPRIS_REMOTE_PLAYER accordingly.'
+            raise SystemExit(1)
+
+        player    = dbus.Interface(player_obj,    dbus_interface='org.mpris.MediaPlayer2.Player')
+
+        try:
+            #tracklist_len = tracklist.GetLength()
+            raise dbus.exceptions.DBusException
+        except dbus.exceptions.DBusException:
+            # GetLength() not supported by player (BMPx for example)
+            tracklist_len = -1
+
+        self.player_name = player_name
+        self.player = player
+        self.tracklist = TrackListNotSupported()
+
 def format_time(rawms):
     min = rawms / 1000 / 60
     sec = rawms / 1000 % 60
@@ -543,18 +600,20 @@ def main(method_name, args, legacy_only=False, player_name='*',
          **_bullshit # why values isn't a dict I don't know. 
          ):
 
-    if 'Commander_'+player_name in globals():
-        cmdr_factory = globals()['Commander_'+player_name]
-    else:
-        cmdr_factory = Commander
 
     bus = dbus.SessionBus()
 
     if player_name == '*':
         player_name = os.environ.get('MPRIS_REMOTE_PLAYER', '*')
     if player_name == '*':
-        player_name = get_player(bus)
+        player_name, version = get_player(bus, legacy_only)
 
+    if version == 2:
+        cmdr_factory = Commander2
+    elif 'Commander_'+player_name in globals():
+        cmdr_factory = globals()['Commander_'+player_name]
+    else:
+        cmdr_factory = Commander1
     try:
         cmdr = cmdr_factory(bus, player_name)
         getattr(cmdr, method_name)(*args)
