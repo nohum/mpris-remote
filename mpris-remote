@@ -372,32 +372,32 @@ class Commander(object):
     def print_nicey_nice(self):
         # to be compatible with a wide array of implementations (some very
         # incorrect/incomplete), we have to do a LOT of extra work here.
-    
+
         try:
             status = self.player.GetStatus()
         except dbus.exceptions.DBusException:
             status = None
-    
+
         try:
             status[0] # dragon player returns a single int, which is wrong
         except TypeError:
             status = None
-    
+
         try:
             curtrack = tracklist.GetCurrentTrack()
         except dbus.exceptions.DBusException:
             curtrack = None
-    
+
         try:
             pos = self.player.PositionGet()
         except dbus.exceptions.DBusException:
             pos = None
-    
+
         try:
             meta = dict(self.player.GetMetadata())
         except dbus.exceptions.DBusException:
             meta = {}
-    
+
         if 'mtime' in meta:
             mtime = int(meta['mtime'])
             if abs(mtime - time.time()) < 60*60*24*365*5:
@@ -406,75 +406,75 @@ class Commander(object):
                 # player is incorrectly using this field for the file's mtime, not
                 # the song length. (bmpx does this as of january 2008)
                 del meta['mtime']
-    
+
                 # and also, if we know it's bmp, then we can swipe the time field
                 if self.player_name == 'bmp':
                     meta['mtime'] = meta['time'] * 1000
-    
+
         have_status = (status is not None)
         have_curtrack = (curtrack is not None)
         have_listlen = (tracklist_len >= 0)
         have_player_info = (have_status or have_curtrack or have_listlen)
-    
+
         have_pos = (pos is not None)
         have_mtime = ('mtime' in meta)
         have_tracknum = ('tracknumber' in meta)
         have_song_info = (have_pos or have_mtime or have_tracknum)
-    
+
         ##
-    
+
         if have_player_info:
             sys.stdout.write('[')
-    
+
         if have_status:
             sys.stdout.write("%s" % playstatus_from_int(status[0]))
             if have_curtrack:
                 sys.stdout.write(' ')
-    
+
         if have_curtrack:
             sys.stdout.write(str(curtrack+1))
             if have_listlen:
                 sys.stdout.write('/')
-    
+
         if have_listlen:
             sys.stdout.write(str(tracklist_len))
-    
+
         if have_player_info:
             sys.stdout.write(']')
-    
+
         ##
-    
+
         if have_player_info and have_song_info:
             sys.stdout.write(' ')
-    
+
         ##
-    
+
         if have_pos or have_mtime:
             sys.stdout.write('@ ')
             if have_pos:
                 sys.stdout.write(format_time(pos).split('.')[0])
             elif have_mtime:
                 sys.stdout.write('?')
-    
+
             if have_mtime:
                 sys.stdout.write('/')
                 sys.stdout.write(format_time(meta['mtime']).split('.')[0])
-    
+
         if have_tracknum:
             sys.stdout.write(' - #%s' % meta['tracknumber'])
-    
+
         if have_player_info or have_song_info:
             sys.stdout.write('\n')
-    
+
         ##
-    
+
         if 'artist' in meta:
             print '  artist:', meta['artist']
         if 'title' in meta:
             print '  title:', meta['title']
         if 'album' in meta:
             print '  album:', meta['album']
-    
+
         if have_status:
             print '[repeat %s] [random %s] [loop %s]' % (
                 "on" if status[2] else "off",
@@ -597,7 +597,7 @@ def playstatus_from_int(n):
     return ['playing', 'paused', 'stopped'][n]
 
 def main(method_name, args, legacy_only=False, player_name='*',
-         **_bullshit # why values isn't a dict I don't know. 
+         **_bullshit # why values isn't a dict I don't know.
          ):
 
 
