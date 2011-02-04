@@ -16,6 +16,7 @@ COMMANDS:
   stop                 stop playback
   play                 start playback
   pause                pause playback
+  playpause            toggle playback pausing (MPRIS2 only)
 
   trackinfo            print metadata for current track
   trackinfo <track#>   print metadata for given track
@@ -586,6 +587,11 @@ class Commander2(Commander):
         self.player_name = player_name
         self.player = player
         self.tracklist = TrackListNotSupported()
+
+
+    @explain_numargs(0)
+    def playpause(self):
+        self.player.PlayPause()
 
 def format_time(rawms):
     min = rawms / 1000 / 60
