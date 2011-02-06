@@ -593,6 +593,105 @@ class Commander2(Commander):
     def playpause(self):
         self.player.PlayPause()
 
+    def print_nicey_nice(self):
+        try:
+            props = self.player.GetAll('org.mpris.MediaPlayer2.Player',
+                    dbus_interface='org.freedesktop.DBus.Properties')
+        except dbus.exceptions.DBusException:
+            props = {}
+            
+        status = props.get('PlaybackStatus', None)
+        
+        meta = props.get('Metadata', {})
+
+        curtrack = None # meta.get("xesam:trackNumber", None)
+        pos = props.get("Position", 0) or None
+
+        if 'mpris:length' in meta:
+            mtime = int(meta['mpris:length'])
+            if abs(mtime - time.time()) < 60*60*24*365*5:
+                # if the mtime is within 5 years of right now, which would mean the
+                # song is thousands of hours long, then i'm gonna assume that the
+                # player is incorrectly using this field for the file's mtime, not
+                # the song length. (bmpx does this as of january 2008)
+                del meta['mpris:length']
+
+                # and also, if we know it's bmp, then we can swipe the time field
+                if self.player_name == 'bmp':
+                    meta['mpris:length'] = meta['time'] * 1000
+
+        have_status = (status is not None)
+        have_curtrack = (curtrack is not None)
+        have_listlen = (self.tracklist_len >= 0)
+        have_player_info = (have_status or have_curtrack or have_listlen)
+
+        have_pos = (pos is not None)
+        have_mtime = ('mpris:length' in meta)
+        have_tracknum = False # ('xesam:trackNumber' in meta)
+        have_song_info = (have_pos or have_mtime or have_tracknum)
+
+        ##
+
+        if have_player_info:
+            sys.stdout.write('[')
+
+        if have_status:
+            sys.stdout.write("%s" % status)
+            if have_curtrack:
+                sys.stdout.write(' ')
+
+        if have_curtrack:
+            sys.stdout.write(str(curtrack+1))
+            if have_listlen:
+                sys.stdout.write('/')
+
+        if have_listlen:
+            sys.stdout.write(str(self.tracklist_len))
+
+        if have_player_info:
+            sys.stdout.write(']')
+
+        ##
+
+        if have_player_info and have_song_info:
+            sys.stdout.write(' ')
+
+        ##
+
+        if have_pos or have_mtime:
+            sys.stdout.write('@ ')
+            if have_pos:
+                sys.stdout.write(format_time(pos).split('.')[0])
+            elif have_mtime:
+                sys.stdout.write('?')
+
+            if have_mtime:
+                sys.stdout.write('/')
+                sys.stdout.write(format_time(meta['mpris:length']/1000).split('.')[0])
+
+        if have_tracknum:
+            sys.stdout.write(' - #%s' % meta['xesam:trackNumber'])
+
+        if have_player_info or have_song_info:
+            sys.stdout.write('\n')
+
+        ##
+
+        if 'xesam:artist' in meta:
+            print '  artist:', meta['xesam:artist']
+        if 'xesam:title' in meta:
+            print '  title:', meta['xesam:title']
+        if 'xesam:album' in meta:
+            print '  album:', meta['xesam:album']
+
+        repeat = props.get('LoopStatus', None)
+        if repeat is not None:
+            print '[repeat %s]' % repeat
+        random = props.get('Shuffle', None)
+        if random is not None:
+            '[random %s]' % ("on" if random else "off")
+            
+
 def format_time(rawms):
     min = rawms / 1000 / 60
     sec = rawms / 1000 % 60
