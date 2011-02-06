@@ -637,5 +637,8 @@ if __name__ == '__main__':
     parser.add_option('--player', dest='player_name',
             default='*'
             )
+    parser.usage = usage
     values, args = parser.parse_args()
+    if not args:
+        args = ['print_nicey_nice']
     main(args[0], args[1:], **vars(values))
