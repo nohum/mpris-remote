@@ -133,7 +133,7 @@ class is_zero_to_100(object):
 class is_track_num(object):
     tracklist_len = 0
     if tracklist_len > 0:
-        type_desc = 'an integer within [0..%d] (current playlist size is %d)' % (tracklist_len-1, tracklist_len)
+        type_desc = 'an integer within [0..%d] (current playlist size is %d)' % (self.tracklist_len-1, self.tracklist_len)
     elif tracklist_len == 0:
         type_desc = 'an integer within [0..<tracklist length>], ' \
                     'although the current track list is empty, so ' \
@@ -293,7 +293,7 @@ class Commander(object):
     @explain_argtype(0, is_track_num_or_star, optional=True)
     def trackinfo(self, track=None):
         if track == '*':
-            for i in range(tracklist_len):
+            for i in range(self.tracklist_len):
                 print_metadata(tracklist.GetMetadata(i))
                 print
         elif track is not None:
@@ -306,13 +306,13 @@ class Commander(object):
     @explain_numargs(0)
     def clear(self):
         self.player.Stop()
-        for i in range(tracklist.GetLength()):
-            tracklist.DelTrack(0)
+        for i in range(self.tracklist.GetLength()):
+            self.tracklist.DelTrack(0)
 
     @explain_numargs(1)
     @explain_argtype(0, is_track_num)
     def deltrack(self, pos):
-        tracklist.DelTrack(int(pos))
+        self.tracklist.DelTrack(int(pos))
 
     @explain_numargs(1, 2)
     @explain_argtype(0, is_valid_uri)
@@ -326,27 +326,27 @@ class Commander(object):
                     raise YouDidItWrong('not a file or directory: %s' % path)
 
                 if bool(playnow) and i == 0:
-                    tracklist.AddTrack(path, True)
+                    self.tracklist.AddTrack(path, True)
                 else:
-                    tracklist.AddTrack(path, False)
+                    self.tracklist.AddTrack(path, False)
         else:
-            tracklist.AddTrack(uri, bool(playnow))
+            self.tracklist.AddTrack(uri, bool(playnow))
 
     @explain_numargs(0)
     def tracknum(self):
-        print tracklist.GetCurrentTrack()
+        print self.tracklist.GetCurrentTrack()
 
     @explain_numargs(0)
     def numtracks(self):
-        print tracklist.GetLength()
+        print self.tracklist.GetLength()
 
     @explain_numargs(0, 1)
     @explain_argtype(0, is_boolean, optional=True)
     def loop(self, on=None):
         if on == 'true':
-            tracklist.SetLoop(True)
+            self.tracklist.SetLoop(True)
         elif on == 'false':
-            tracklist.SetLoop(False)
+            self.tracklist.SetLoop(False)
         else:
             try:
                 status = self.player.GetStatus()
@@ -359,9 +359,9 @@ class Commander(object):
     @explain_argtype(0, is_boolean, optional=True)
     def random(self, on=None):
         if on == 'true':
-            tracklist.SetRandom(True)
+            self.tracklist.SetRandom(True)
         elif on == 'false':
-            tracklist.SetRandom(False)
+            self.tracklist.SetRandom(False)
         else:
             try:
                 status = self.player.GetStatus()
@@ -385,7 +385,7 @@ class Commander(object):
             status = None
 
         try:
-            curtrack = tracklist.GetCurrentTrack()
+            curtrack = self.tracklist.GetCurrentTrack()
         except dbus.exceptions.DBusException:
             curtrack = None
 
@@ -414,7 +414,7 @@ class Commander(object):
 
         have_status = (status is not None)
         have_curtrack = (curtrack is not None)
-        have_listlen = (tracklist_len >= 0)
+        have_listlen = (self.tracklist_len >= 0)
         have_player_info = (have_status or have_curtrack or have_listlen)
 
         have_pos = (pos is not None)
@@ -438,7 +438,7 @@ class Commander(object):
                 sys.stdout.write('/')
 
         if have_listlen:
-            sys.stdout.write(str(tracklist_len))
+            sys.stdout.write(str(self.tracklist_len))
 
         if have_player_info:
             sys.stdout.write(']')
@@ -511,10 +511,10 @@ class Commander1(Commander):
         tracklist = dbus.Interface(tracklist_obj, dbus_interface='org.freedesktop.MediaPlayer')
 
         try:
-            tracklist_len = tracklist.GetLength()
+            self.tracklist_len = tracklist.GetLength()
         except dbus.exceptions.DBusException:
             # GetLength() not supported by player (BMPx for example)
-            tracklist_len = -1
+            self.tracklist_len = -1
 
         self.player_name = player_name
         self.root = root
@@ -578,11 +578,11 @@ class Commander2(Commander):
         player    = dbus.Interface(player_obj,    dbus_interface='org.mpris.MediaPlayer2.Player')
 
         try:
-            #tracklist_len = tracklist.GetLength()
+            #self.tracklist_len = tracklist.GetLength()
             raise dbus.exceptions.DBusException
         except dbus.exceptions.DBusException:
             # GetLength() not supported by player (BMPx for example)
-            tracklist_len = -1
+            self.tracklist_len = -1
 
         self.player_name = player_name
         self.player = player
