@@ -138,6 +138,12 @@ class is_boolean(object):
         if arg not in ('true', 'false'):
             raise ValueError
 
+class is_boolean_or_toggle(object):
+    type_desc = 'true/false/toggle'
+    def __init__(self, arg):
+        if arg not in ('true', 'false', 'toggle'):
+            raise ValueError
+
 class is_zero_to_100(object):
     type_desc = 'an integer within [0..100]'
     def __init__(self, arg):
@@ -288,12 +294,18 @@ class Commander(object):
         self.player.PositionSet(int(pos))
 
     @explain_numargs(1)
-    @explain_argtype(0, is_boolean)
+    @explain_argtype(0, is_boolean_or_toggle)
     def repeat(self, on):
         if on == 'true':
-            self.player.Repeat(True)
+            self.setPlayerProperty("LoopStatus", "Track")
         elif on == 'false':
-            self.player.Repeat(False)
+            self.setPlayerProperty("LoopStatus", "None")
+        elif on == 'toggle':
+            curVal = self.getPlayerProperty("LoopStatus")
+            if curVal == 'Track':
+                self.setPlayerProperty("LoopStatus", "None")
+            else:
+                self.setPlayerProperty("LoopStatus", "Track")
 
     @explain_numargs(0)
     def playstatus(self):
@@ -601,6 +613,14 @@ class Commander2(Commander):
         self.player_name = player_name
         self.player = player
         self.tracklist = TrackListNotSupported()
+
+    def setPlayerProperty(self, name, value):
+        self.player.Set("org.mpris.MediaPlayer2.Player", name, dbus.String(value, variant_level=1),
+                        dbus_interface='org.freedesktop.DBus.Properties')
+
+    def getPlayerProperty(self, name):
+        return self.player.Get("org.mpris.MediaPlayer2.Player", name,
+                                dbus_interface='org.freedesktop.DBus.Properties')
 
 
     @explain_numargs(0)
