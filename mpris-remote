@@ -618,6 +618,10 @@ class Commander2(Commander):
         self.player.Set("org.mpris.MediaPlayer2.Player", name, dbus.String(value, variant_level=1),
                         dbus_interface='org.freedesktop.DBus.Properties')
 
+    def setPlayerPropertyRaw(self, name, value):
+        self.player.Set("org.mpris.MediaPlayer2.Player", name, value,
+                        dbus_interface='org.freedesktop.DBus.Properties')
+
     def getPlayerProperty(self, name):
         return self.player.Get("org.mpris.MediaPlayer2.Player", name,
                                 dbus_interface='org.freedesktop.DBus.Properties')
@@ -626,6 +630,16 @@ class Commander2(Commander):
     @explain_numargs(0)
     def playpause(self):
         self.player.PlayPause()
+
+    @explain_numargs(0, 1)
+    @explain_argtype(0, is_zero_to_100, optional=True)
+    def volume(self, vol=None):   
+        if vol is not None:
+            # volume is now a percentage ranging from 0 to 1
+            percentage_volume = float(vol) / 100
+            self.setPlayerPropertyRaw('Volume', percentage_volume)
+        else:
+            print "%d" % (self.getPlayerProperty('Volume') * 100)
 
     def print_nicey_nice(self):
         try:
