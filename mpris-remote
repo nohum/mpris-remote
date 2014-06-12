@@ -284,6 +284,24 @@ class Commander(object):
         else:
             print self.player.VolumeGet()
 
+    @explain_numargs(1)
+    @explain_argtype(0, is_zero_to_100)
+    def incvolume(self, increase_amount):
+        current_volume = self.player.VolumeGet()
+        new_volume = int(current_volume + increase_amount)
+        if new_volume > 100:
+            new_volume = 100
+
+        self.player.VolumeSet(new_volume)
+
+    @explain_numargs(1)
+    @explain_argtype(0, is_zero_to_100)
+    def decvolume(self, decrease_amount):
+        current_volume = self.player.VolumeGet()
+        new_volume = int(current_volume - decrease_amount)
+        if new_volume < 0:
+            new_volume = 0
+
     @explain_numargs(0)
     def position(self):
         print format_time(self.player.PositionGet())
@@ -626,7 +644,6 @@ class Commander2(Commander):
         return self.player.Get("org.mpris.MediaPlayer2.Player", name,
                                 dbus_interface='org.freedesktop.DBus.Properties')
 
-
     @explain_numargs(0)
     def playpause(self):
         self.player.PlayPause()
@@ -640,6 +657,28 @@ class Commander2(Commander):
             self.setPlayerPropertyRaw('Volume', percentage_volume)
         else:
             print "%d" % (self.getPlayerProperty('Volume') * 100)
+
+    @explain_numargs(1)
+    @explain_argtype(0, is_zero_to_100)
+    def incvolume(self, increase_amount):
+        current_volume = self.getPlayerProperty('Volume')
+        
+        new_volume = current_volume + float(increase_amount) / 100
+        if new_volume > 1.0:
+            new_volume = 1.0
+
+        self.setPlayerPropertyRaw('Volume', new_volume)
+
+    @explain_numargs(1)
+    @explain_argtype(0, is_zero_to_100)
+    def decvolume(self, decrease_amount):
+        current_volume = self.getPlayerProperty('Volume')
+        
+        new_volume = current_volume - float(decrease_amount) / 100
+        if new_volume < 0:
+            new_volume = 0
+
+        self.setPlayerPropertyRaw('Volume', new_volume)
 
     def print_nicey_nice(self):
         try:
